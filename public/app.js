@@ -14,6 +14,10 @@ async function api(method, path, body) {
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
+  if (res.status === 401) {
+    location.href = '/login.html';
+    return new Promise(() => {}); // la page change : rien ne doit continuer
+  }
   const data = await res.json();
   if (!res.ok) throw new Error(data.error);
   return data;
@@ -170,6 +174,8 @@ document.addEventListener('click', (e) => {
     if (name?.trim()) act('PATCH', `/categories/${id}`, { name });
   } else if (action === 'delete-category') {
     if (confirm('Supprimer la catégorie et toutes ses tâches ?')) act('DELETE', `/categories/${id}`);
+  } else if (action === 'logout') {
+    api('POST', '/logout').then(() => (location.href = '/login.html'));
   } else if (action === 'delete-label') {
     if (confirm(`Supprimer le label #${id} de toutes les tâches ?`)) act('DELETE', `/labels/${encodeURIComponent(id)}`);
   }

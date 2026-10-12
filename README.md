@@ -16,11 +16,47 @@ npm start          # http://127.0.0.1:3000
 npm test
 ```
 
-Les données sont stockées dans `data/todos.json`, qui n'est pas versionné. Tu peux changer l'emplacement avec la variable `TODO_DATA`.
+En local, les données sont stockées dans `data/todos.json`, qui n'est pas versionné. Tu peux changer l'emplacement avec la variable `TODO_DATA`.
 
-## Utiliser avec Claude Code
+## Configuration
 
-Le fichier `.mcp.json` déclare le serveur `todo-list`. Lance `claude` dans ce dossier et accepte le serveur MCP. Tu peux ensuite demander par exemple :
+| Variable | Rôle |
+|---|---|
+| `APP_PASSWORD` | Protège l'interface et l'API par un mot de passe. Sans elle, le serveur n'écoute que sur `127.0.0.1`. |
+| `MCP_TOKEN` | Active l'endpoint MCP distant sur `/mcp/<MCP_TOKEN>`. |
+| `STORAGE=dynamodb` + `TABLE_NAME` | Stocke les données dans DynamoDB au lieu du fichier local. |
+| `TODO_DATA` | Chemin du fichier JSON local. |
+| `PORT`, `HOST` | Adresse d'écoute (par défaut `3000`). |
+
+## Hébergement sur AWS
+
+Architecture : une fonction **Lambda** avec une Function URL publique, et une table **DynamoDB**. Pour un usage personnel, le coût reste dans l'offre gratuite. La table est conservée même si la stack est supprimée, et la restauration à un instant donné (point-in-time recovery) est activée.
+
+Prérequis : la CLI AWS configurée avec des identifiants qui peuvent créer des ressources CloudFormation, Lambda, DynamoDB, IAM et S3.
+
+```bash
+# Premier déploiement (région par défaut : eu-west-3, Paris)
+APP_PASSWORD='un-mot-de-passe-long' MCP_TOKEN="$(openssl rand -hex 32)" npm run deploy
+
+# Mises à jour : le mot de passe et le jeton déjà configurés sont conservés
+npm run deploy
+```
+
+Garde le `MCP_TOKEN` en lieu sûr : quiconque connaît l'URL MCP peut lire et modifier ta liste. Le script affiche à la fin l'adresse de l'interface et celle du MCP.
+
+### Connecter Claude (claude.ai, appli mobile)
+
+Dans claude.ai : **Paramètres → Connecteurs → Ajouter un connecteur personnalisé**, puis colle l'URL `https://…lambda-url…/mcp/<MCP_TOKEN>`. La todo list est alors accessible depuis toutes tes conversations, y compris sur mobile.
+
+Pour Claude Code :
+
+```bash
+claude mcp add --transport http todo-list https://…lambda-url…/mcp/<MCP_TOKEN>
+```
+
+## Utiliser avec Claude Code en local
+
+Le fichier `.mcp.json` déclare le serveur `todo-list` (stdio, données locales). Lance `claude` dans ce dossier et accepte le serveur MCP. Tu peux ensuite demander par exemple :
 
 - « Qu'est-ce que j'ai d'urgent ? »
 - « Ajoute "acheter du café" dans Maison avec le label achat. »

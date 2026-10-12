@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connexion · Todo list</title>
+  <link rel="stylesheet" href="style.css">
+  <style>body { display: block; }</style>
+</head>
+<body>
+  <div class="login">
+    <h1>Todo list</h1>
+    <form id="login">
+      <input type="password" name="password" placeholder="Mot de passe" autocomplete="current-password" required autofocus>
+      <button type="submit">Se connecter</button>
+      <p class="error" id="error" hidden></p>
+    </form>
+  </div>
+  <script type="module">
+    document.querySelector('#login').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: e.target.password.value }),
+      });
+      if (res.ok) return (location.href = '/');
+      const error = document.querySelector('#error');
+      error.textContent = (await res.json()).error;
+      error.hidden = false;
+    });
+  </script>
+</body>
+</html>

@@ -10,9 +10,12 @@
   "scripts": {
     "start": "node src/server.js",
     "mcp": "node src/mcp.js",
-    "test": "node --test"
+    "deploy": "scripts/deploy.sh",
+    "test": "node --test --test-force-exit"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1149.0",
+    "@aws-sdk/lib-dynamodb": "^3.1149.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "zod": "^4.6.6"
   }

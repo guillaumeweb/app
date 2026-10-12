@@ -1,7 +1,8 @@
 # Todo list — consignes pour Claude
 
 Cette application est la todo list de l'utilisateur. Claude y accède via le serveur
-MCP `todo-list` (déclaré dans `.mcp.json`) : ne jamais éditer `data/todos.json` à la main.
+MCP `todo-list` : en local par stdio (`.mcp.json`), ou en ligne par HTTP sur
+`/mcp/<MCP_TOKEN>`. Ne jamais éditer `data/todos.json` ni la table DynamoDB à la main.
 
 ## Modèle
 
@@ -28,6 +29,13 @@ Ne pas supprimer de tâche ou de catégorie sans que l'utilisateur l'ait demand�
 ## Développement
 
 - `npm start` : interface web sur http://127.0.0.1:3000
-- `npm test` : tests du store (`node:test`)
-- `src/store.js` est la seule couche qui touche au fichier ; le serveur web (`src/server.js`)
-  et le serveur MCP (`src/mcp.js`) passent tous les deux par elle.
+- `npm test` : tests (`node:test`)
+- `npm run deploy` : déploiement AWS (`template.yaml`, `scripts/deploy.sh`)
+
+Architecture :
+- `src/store.js` : logique métier, asynchrone. Toute la liste est un seul document JSON,
+  relu puis réécrit à chaque modification ; l'opération est rejouée en cas d'écriture concurrente.
+- `src/backends.js` : stockage, fichier local ou un item DynamoDB versionné (écriture conditionnelle).
+- `src/mcp-tools.js` : outils MCP, partagés entre `src/mcp.js` (stdio) et `src/server.js` (HTTP, sans état).
+- `src/server.js` : API REST, interface statique, mot de passe (`APP_PASSWORD`), endpoint MCP.
+- `src/lambda.js` : adaptateur Lambda, qui relaie chaque événement de la Function URL vers le serveur HTTP.

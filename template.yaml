@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Todo list pilotable par Claude (Lambda + DynamoDB)
+
+Parameters:
+  AppPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 12
+    Description: Mot de passe de l'interface web
+  McpToken:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: Jeton secret de l'URL MCP (/mcp/<jeton>)
+
+Resources:
+  TodoTable:
+    Type: AWS::DynamoDB::Table
+    # La table survit à la suppression de la stack : on ne perd jamais les tâches par erreur.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  TodoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: build/
+      Handler: src/lambda.handler
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          STORAGE: dynamodb
+          TABLE_NAME: !Ref TodoTable
+          APP_PASSWORD: !Ref AppPassword
+          MCP_TOKEN: !Ref McpToken
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoTable
+      # Accès public : l'application gère elle-même l'authentification (mot de passe, jeton MCP).
+      FunctionUrlConfig:
+        AuthType: NONE
+
+  # Les Function URL publiques demandent aussi lambda:InvokeFunction depuis l'URL.
+  TodoFunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TodoFunction
+      Action: lambda:InvokeFunction
+      Principal: '*'
+      InvokedViaFunctionUrl: true
+
+Outputs:
+  AppUrl:
+    Description: Adresse de l'interface web
+    Value: !GetAtt TodoFunctionUrl.FunctionUrl
+  TableName:
+    Value: !Ref TodoTable

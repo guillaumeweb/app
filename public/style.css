@@ -111,6 +111,12 @@ main { padding: 24px 32px; max-width: 900px; }
 .by.claude { color: var(--claude); }
 
 .hint { color: var(--muted); font-size: 13px; }
+.link { background: none; border: 0; padding: 0; margin-top: 24px; color: var(--muted); font-size: 13px; text-decoration: underline; }
+
+.login { max-width: 320px; margin: 15vh auto; padding: 24px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+.login form { display: grid; gap: 10px; }
+.login button { border: 0; border-radius: 6px; padding: 8px; background: var(--accent); color: #fff; }
+.error { color: #dc2626; font-size: 13px; margin: 0; }
 
 @media (max-width: 700px) {
   body { grid-template-columns: 1fr; }

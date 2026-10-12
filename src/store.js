@@ -1,14 +1,12 @@
-// Stockage de la todo list dans un fichier JSON unique, partagé entre
-// l'interface web et le serveur MCP. Chaque opération relit le fichier,
-// applique la modification puis réécrit de façon atomique (tmp + rename).
-import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+// Logique de la todo list (catégories, tâches, labels, journal), indépendante
+// du stockage. Chaque modification relit le document, l'applique puis le
+// réécrit ; en cas d'écriture concurrente (DynamoDB), elle est rejouée.
 import { randomUUID } from 'node:crypto';
+import { fileBackend, ConflictError } from './backends.js';
 
 export const STATUSES = ['todo', 'doing', 'done'];
 
-const DEFAULT_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'todos.json');
+const MAX_ATTEMPTS = 5;
 
 const emptyDb = () => ({ categories: [], labels: [], tasks: [] });
 const newId = () => randomUUID().slice(0, 8);
@@ -17,24 +15,25 @@ const now = () => new Date().toISOString();
 export class NotFoundError extends Error {}
 export class ValidationError extends Error {}
 
-export function createStore(path = process.env.TODO_DATA || DEFAULT_PATH) {
-  const read = () => {
-    if (!existsSync(path)) return emptyDb();
-    return { ...emptyDb(), ...JSON.parse(readFileSync(path, 'utf8')) };
+export function createStore(backend = fileBackend()) {
+  const load = async () => {
+    const { db, version } = await backend.read();
+    return { db: { ...emptyDb(), ...db }, version };
   };
 
-  const write = (db) => {
-    mkdirSync(dirname(path), { recursive: true });
-    const tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(db, null, 2) + '\n');
-    renameSync(tmp, path);
-  };
+  const read = async () => (await load()).db;
 
-  const mutate = (fn) => {
-    const db = read();
-    const result = fn(db);
-    write(db);
-    return result;
+  const mutate = async (fn) => {
+    for (let attempt = 1; ; attempt++) {
+      const { db, version } = await load();
+      const result = fn(db);
+      try {
+        await backend.write(db, version);
+        return result;
+      } catch (err) {
+        if (!(err instanceof ConflictError) || attempt >= MAX_ATTEMPTS) throw err;
+      }
+    }
   };
 
   const findCategory = (db, id) => {
@@ -78,20 +77,20 @@ export function createStore(path = process.env.TODO_DATA || DEFAULT_PATH) {
   });
 
   return {
-    path,
+    describe: () => backend.describe(),
 
     snapshot: read,
 
     // --- Catégories ---
-    listCategories() {
-      const db = read();
+    async listCategories() {
+      const db = await read();
       return db.categories.map((c) => {
         const tasks = db.tasks.filter((t) => t.categoryId === c.id);
         return { ...c, taskCount: tasks.length, openCount: tasks.filter((t) => t.status !== 'done').length };
       });
     },
 
-    createCategory({ name, color = null }) {
+    async createCategory({ name, color = null }) {
       if (!name?.trim()) throw new ValidationError('Le nom de la catégorie est requis');
       return mutate((db) => {
         const cat = { id: newId(), name: name.trim(), color, createdAt: now() };
@@ -100,7 +99,7 @@ export function createStore(path = process.env.TODO_DATA || DEFAULT_PATH) {
       });
     },
 
-    updateCategory(id, { name, color }) {
+    async updateCategory(id, { name, color }) {
       return mutate((db) => {
         const cat = findCategory(db, id);
         if (name !== undefined) {
@@ -113,7 +112,7 @@ export function createStore(path = process.env.TODO_DATA || DEFAULT_PATH) {
     },
 
     // Supprime aussi toutes les tâches de la catégorie.
-    deleteCategory(id) {
+    async deleteCategory(id) {
       return mutate((db) => {
         findCategory(db, id);
         db.categories = db.categories.filter((c) => c.id !== id);
@@ -123,12 +122,12 @@ export function createStore(path = process.env.TODO_DATA || DEFAULT_PATH) {
     },
 
     // --- Labels ---
-    listLabels() {
-      const db = read();
+    async listLabels() {
+      const db = await read();
       return db.labels.map((l) => ({ ...l, taskCount: db.tasks.filter((t) => t.labels.includes(l.name)).length }));
     },
 
-    upsertLabel({ name, color = null }) {
+    async upsertLabel({ name, color = null }) {
       return mutate((db) => {
         const [clean] = ensureLabels(db, [name]);
         if (!clean) throw new ValidationError('Le nom du label est requis');
@@ -139,7 +138,7 @@ export function createStore(path = process.env.TODO_DATA || DEFAULT_PATH) {
     },
 
     // Retire aussi le label de toutes les tâches.
-    deleteLabel(name) {
+    async deleteLabel(name) {
       return mutate((db) => {
         const clean = String(name).trim().toLowerCase();
         if (!db.labels.some((l) => l.name === clean)) throw new NotFoundError(`Label introuvable : ${name}`);
@@ -151,8 +150,8 @@ export function createStore(path = process.env.TODO_DATA || DEFAULT_PATH) {
 
     // --- Tâches ---
     // Filtres combinables. Sans parentId, renvoie toutes les tâches à plat.
-    listTasks({ categoryId, label, status, parentId, search } = {}) {
-      const db = read();
+    async listTasks({ categoryId, label, status, parentId, search } = {}) {
+      const db = await read();
       const q = search?.toLowerCase();
       return db.tasks.filter(
         (t) =>
@@ -165,29 +164,29 @@ export function createStore(path = process.env.TODO_DATA || DEFAULT_PATH) {
     },
 
     // Renvoie la tâche avec son arbre de sous-tâches.
-    getTask(id) {
-      const db = read();
+    async getTask(id) {
+      const db = await read();
       return withSubtasks(db, findTask(db, id));
     },
 
     // Arbre complet d'une catégorie : tâches racines + sous-tâches imbriquées.
-    getCategoryTree(categoryId) {
-      const db = read();
+    async getCategoryTree(categoryId) {
+      const db = await read();
       const cat = findCategory(db, categoryId);
       const roots = db.tasks.filter((t) => t.categoryId === categoryId && !t.parentId);
       return { ...cat, tasks: roots.map((t) => withSubtasks(db, t)) };
     },
 
-    createTask({ title, categoryId, parentId = null, notes = '', labels = [], status = 'todo' }) {
+    async createTask({ title, categoryId, parentId = null, notes = '', labels = [], status = 'todo' }) {
       if (!title?.trim()) throw new ValidationError('Le titre est requis');
       checkStatus(status);
       return mutate((db) => {
         // Une sous-tâche hérite toujours de la catégorie de son parent.
-        if (parentId) categoryId = findTask(db, parentId).categoryId;
-        findCategory(db, categoryId);
+        const catId = parentId ? findTask(db, parentId).categoryId : categoryId;
+        findCategory(db, catId);
         const task = {
           id: newId(),
-          categoryId,
+          categoryId: catId,
           parentId,
           title: title.trim(),
           notes,
@@ -202,7 +201,7 @@ export function createStore(path = process.env.TODO_DATA || DEFAULT_PATH) {
       });
     },
 
-    updateTask(id, { title, notes, labels, status, categoryId }) {
+    async updateTask(id, { title, notes, labels, status, categoryId }) {
       return mutate((db) => {
         const task = findTask(db, id);
         if (title !== undefined) {
@@ -218,9 +217,8 @@ export function createStore(path = process.env.TODO_DATA || DEFAULT_PATH) {
         if (categoryId !== undefined && categoryId !== task.categoryId) {
           if (task.parentId) throw new ValidationError('Une sous-tâche reste dans la catégorie de son parent');
           findCategory(db, categoryId);
-          for (const t of db.tasks) {
-            if (t.id === id || descendantIds(db, id).includes(t.id)) t.categoryId = categoryId;
-          }
+          const moved = new Set([id, ...descendantIds(db, id)]);
+          for (const t of db.tasks) if (moved.has(t.id)) t.categoryId = categoryId;
         }
         task.updatedAt = now();
         return task;
@@ -228,7 +226,7 @@ export function createStore(path = process.env.TODO_DATA || DEFAULT_PATH) {
     },
 
     // Supprime la tâche et toutes ses sous-tâches.
-    deleteTask(id) {
+    async deleteTask(id) {
       return mutate((db) => {
         findTask(db, id);
         const ids = new Set([id, ...descendantIds(db, id)]);
@@ -238,7 +236,7 @@ export function createStore(path = process.env.TODO_DATA || DEFAULT_PATH) {
     },
 
     // Journal d'activité : c'est là que Claude (ou toi) note l'avancement d'une mission.
-    addLog(id, { text, by = 'user' }) {
+    async addLog(id, { text, by = 'user' }) {
       if (!text?.trim()) throw new ValidationError('Le texte du journal est requis');
       return mutate((db) => {
         const task = findTask(db, id);
