@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "todo-list": {
+      "command": "node",
+      "args": ["src/mcp.js"]
+    }
+  }
+}

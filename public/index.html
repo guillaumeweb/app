@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Todo list</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside id="sidebar">
+    <h1>Todo list</h1>
+
+    <section>
+      <h2>Catégories</h2>
+      <ul id="categories" class="nav"></ul>
+      <form id="new-category" class="inline-form">
+        <input name="name" placeholder="Nouvelle catégorie" autocomplete="off" required>
+        <button type="submit" aria-label="Ajouter la catégorie">+</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>Labels</h2>
+      <ul id="labels" class="nav"></ul>
+      <p class="hint">Les labels se créent en les ajoutant à une tâche.</p>
+    </section>
+  </aside>
+
+  <main>
+    <header id="view-header"></header>
+    <form id="new-task" class="inline-form" hidden>
+      <input name="title" placeholder="Nouvelle tâche…" autocomplete="off" required>
+      <input name="labels" placeholder="labels (urgent, achat…)" autocomplete="off">
+      <button type="submit">Ajouter</button>
+    </form>
+    <div id="tasks"></div>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
